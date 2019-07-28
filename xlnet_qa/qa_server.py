@@ -1,5 +1,6 @@
 #!/usr/bin/env python
-import plyvel, tqdm
+import plyvel
+from tqdm import tqdm
 from nltk import sent_tokenize
 from nlptools.text import TFIDF
 from nlptools.utils import zloads, zdumps
@@ -42,14 +43,14 @@ class QAServer:
 
         with open_func(filepath) as f, self.contents.write_batch() as wb:
             totN = 0
-            for i, l in enumerate(f):
+            for i, l in tqdm(enumerate(f)):
                 for j, sent in enumerate(sent_tokenize(l)):
                     token_ids = self.tokenizer.encode(j)
                     wb.put(bytes(totN), zdumps({"sentence": sent, "ids": token_ids}))
                     totN += 1
             wb.put(b"total", zdumps({"N": totN, "Ndocs": i+1}))
 
-    def build_index(self, filepath)
+    def build_index(self, filepath):
         """
             build index
 
@@ -61,7 +62,7 @@ class QAServer:
         totN = zloads(self.contents.get(b'total'))["N"]
         def data_iter():
             with self.contents.snapshot() as sn:
-                for i in range(totN):
+                for i in tqdm(range(totN)):
                     yield zloads(sn.get(bytes(i)))["ids"]
         self.tfidf.load_index(corpus_ids=data_iter, corpus_len=totN)
 

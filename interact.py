@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from .xlnet_qa.qa_server.py import QAServer
+from xlnet_qa.qa_server import QAServer
 from pytorch_transformers import XLNetTokenizer
 
 tokenizer = XLNetTokenizer.from_pretrained("xlnet-large-cased")
