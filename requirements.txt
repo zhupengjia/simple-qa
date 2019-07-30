@@ -1,6 +1,6 @@
 tqdm
 pytorch_transformers
-spacy
 numpy
 scipy
+python-lzo
 git+git@github.com:zhupengjia/nlptools.git

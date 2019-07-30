@@ -1,10 +1,10 @@
 #!/usr/bin/env python
-import os, sqlite3, spacy, multiprocessing
+import os, sqlite3, nltk, string
 from tqdm import tqdm
 from nlptools.text import TFIDF, Vocab
-from nlptools.utils import zloads, zdumps
-from pytorch_transformers import BertTokenizer
-from spacy.tokens import Span
+from nlptools.utils import lloads, ldumps
+from pytorch_transformers import XLNetTokenizer
+
 
 class QAServer:
     """
@@ -17,23 +17,11 @@ class QAServer:
                 - tokenizer: tokenizer from pytorch_transformers
                 - recreate: bool, True will force recreate db, default is False
         """
-        self.tokenizer = spacy.load("en", disable=['tagger', 'ner', 'textcat', 'entity_ruler']) # get lemma and remove stopwords, punctuation
-        self.bert_tokenizer = BertTokenizer.from_pretrained("bert-base-uncased", do_lower_case=True) #get sub words and related ids
-        self.vocab_size = self.bert_tokenizer.vocab_size
+        self.tokenizer = XLNetTokenizer.from_pretrained("xlnet-large-cased", do_lower_case=True) #get sub words and related ids
+        self.vocab_size = self.tokenizer.vocab_size
+
+        self.translator = str.maketrans('', '', string.punctuation) # remove punctuation
        
-        def bert_pipe(span):
-            lemmas = [token.lemma_.lower() for token in span if not token.is_stop and not token.is_punct]
-            if len(lemmas) < 1:
-                return []
-            return self.bert_tokenizer.encode(" ".join(lemmas))
-
-        def bert_component(doc):
-            doc.user_hooks["vector"] = bert_pipe
-            doc.user_span_hooks["vector"] = bert_pipe
-            return doc
-
-        self.tokenizer.add_pipe(bert_component, name="bert", last=True)
-
         self.tfidf = None
         self.cached_contents = filepath + ".db"
         self._build_db(filepath, recreate)
@@ -82,24 +70,32 @@ class QAServer:
         else:
             open_func = open
 
-        cpu_counts = max(multiprocessing.cpu_count()-2, 1)
-
         with open_func(filepath, mode="rt", encoding="utf-8") as f:
             totN, totP, totS= 0, 0, 0
-            for doc in tqdm(self.tokenizer.pipe(f, n_threads=cpu_counts, batch_size=10000)):
-                if not doc.text.strip():
+            batch_data = []
+            for l in tqdm(f):
+                l = l.strip()
+                if len(l) < 1 :
                     if totS > 0 : totP += 1
                     totS = 0
-                for sent in doc.sents:
-                    if len(sent.vector) < 1:
+                for sent in nltk.sent_tokenize(l):
+                    sent = sent.strip()
+                    clean_sent = sent.translate(self.translator).lower().strip()
+                    if len(clean_sent) < 1:
                         continue
+                    token_ids = self.tokenizer.encode(clean_sent)
 
-                    cursor.execute("""insert into contents values (?,?,?,?,?)""", (totN, totP, totS, zdumps(sent.text), zdumps(sent.vector)))
+                    if len(token_ids) < 1:
+                        continue
+                    batch_data.append((totN, totP, totS, ldumps(sent), ldumps(token_ids)))
                     totN += 1
                     totS += 1
                     if totN % 100000 == 0:
+                        cursor.executemany("""insert into contents values (?,?,?,?,?)""", batch_data)
                         db.commit()
-
+                        batch_data = []
+            if batch_data > 0:
+                cursor.executemany("""insert into contents values (?,?,?,?,?)""", batch_data)
             db.commit()
         db.close()
 
@@ -113,7 +109,8 @@ class QAServer:
                 - before: int, return Nlines before result, default is 0
                 - after: int, return Nlines after result, default is 0
         """
-        token_ids = self.tokenizer(text).vector
+        text = text.translate(self.translator).lower().strip()
+        token_ids = self.tokenizer.encode(text)
         if len(token_ids) < 1:
             return None
         result = self.tfidf.search_index(token_ids, topN=topN)
@@ -141,7 +138,7 @@ class QAServer:
                 ids.append(i+j+1)
                 sentences.append(sentence)
             all_ids += ids
-            all_sentences += [zloads(s) for s in sentences]
+            all_sentences += [lloads(s) for s in sentences]
 
         db.close()
 
@@ -169,8 +166,10 @@ class QAServer:
         def data_iter():
             db, cursor = self._get_cursor(cached_contents)
             for data in cursor.execute('select * from contents order by id'):
-                yield zloads(data[4])
+                yield lloads(data[4])
             db.close()
         self.tfidf.load_index(corpus_ids=data_iter(), corpus_len=totN, retrain=recreate)
 
-
+    def answer(self, text):
+        related_texts = self.search(text)
+        pass

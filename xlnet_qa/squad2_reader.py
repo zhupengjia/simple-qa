@@ -10,12 +10,11 @@ from .utils_squad import SquadExample, convert_examples_to_features
 """
 
 class SQuAD2Reader:
-    def __init__(self, filename, tokenizer_name="xlnet-base-cased", max_seq_len=384, doc_stride=128, max_query_len=64, is_training=True):
+    def __init__(self, tokenizer_name="xlnet-base-cased", max_seq_len=384, doc_stride=128, max_query_len=64, is_training=True):
         """
             Reader for squad 2 dataset
 
             Input:
-                - filename: string
                 - tokenizer_name: string, default is xlnet_base_cased, tokenizer model name or path
                 - max_seq_len: int, default is 384, The maximum total input sequence length after WordPiece tokenization. Sequences longer than this will be truncated, and sequences shorter than this will be padded.
                 - doc_stride: int,  default is 128, When splitting up a long document into chunks, how much stride to take between chunks.
@@ -24,31 +23,40 @@ class SQuAD2Reader:
         """
         self.is_training = is_training
         self.tokenizer = XLNetTokenizer.from_pretrained(tokenizer_name)
+        self.max_seq_len = max_seq_len
+        self.doc_stride = doc_stride
+        self.max_query_len = max_query_len
+        self.tokenizer_name = tokeniizer_name
 
-        cache_file = filename + "_{}_{}.features".format(tokenizer_name, max_seq_len)
+    def squad_data(self, filename):
+        """
+            predeal squad dataset
+        """
+        cache_file = filename + "_{}_{}.features".format(self.tokenizer_name, self.max_seq_len)
         if os.path.exists(cache_file):
-            self.examples, self.features = torch.load(cache_file)
+            examples, features = torch.load(cache_file)
         else:
-            self.examples = self.read_example(filename)
-            self.features = convert_examples_to_features(self.examples, self.tokenizer, max_seq_len, doc_stride, max_query_len, is_training)
-            torch.save((self.examples, self.features), cache_file)
+            examples = self.read_example(filename)
+            features = convert_examples_to_features(examples, self.tokenizer, self.max_seq_len, self.doc_stride, self.max_query_len, self.is_training)
+            torch.save((examples, features), cache_file)
 
         # Convert to Tensors and build dataset
-        all_input_ids = torch.tensor([f.input_ids for f in self.features], dtype=torch.long)
-        all_input_mask = torch.tensor([f.input_mask for f in self.features], dtype=torch.long)
-        all_segment_ids = torch.tensor([f.segment_ids for f in self.features], dtype=torch.long)
-        all_cls_index = torch.tensor([f.cls_index for f in self.features], dtype=torch.long)
-        all_p_mask = torch.tensor([f.p_mask for f in self.features], dtype=torch.float)
-        if is_training:
-            all_start_positions = torch.tensor([f.start_position for f in self.features], dtype=torch.long)
-            all_end_positions = torch.tensor([f.end_position for f in self.features], dtype=torch.long)
-            self.dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids,
+        all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
+        all_input_mask = torch.tensor([f.input_mask for f in features], dtype=torch.long)
+        all_segment_ids = torch.tensor([f.segment_ids for f in features], dtype=torch.long)
+        all_cls_index = torch.tensor([f.cls_index for f in features], dtype=torch.long)
+        all_p_mask = torch.tensor([f.p_mask for f in features], dtype=torch.float)
+        if self.is_training:
+            all_start_positions = torch.tensor([f.start_position for f in features], dtype=torch.long)
+            all_end_positions = torch.tensor([f.end_position for f in features], dtype=torch.long)
+            dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids,
                                     all_start_positions, all_end_positions,
                                     all_cls_index, all_p_mask)
         else:
             all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
-            self.dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids,
+            dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids,
                                     all_example_index, all_cls_index, all_p_mask)
+        return examples, features, dataset
 
     def convert_to_example(self,
                            qas_id,
