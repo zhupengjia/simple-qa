@@ -3,6 +3,7 @@ import json, os, torch
 from pytorch_transformers.tokenization_bert import whitespace_tokenize
 from pytorch_transformers import XLNetTokenizer
 from torch.utils.data import TensorDataset
+from torch.utils.data import SequentialSampler, DataLoader
 from .utils_squad import SquadExample, convert_examples_to_features
 
 """
@@ -10,7 +11,7 @@ from .utils_squad import SquadExample, convert_examples_to_features
 """
 
 class SQuAD2Reader:
-    def __init__(self, tokenizer_name="xlnet-base-cased", max_seq_len=384, doc_stride=128, max_query_len=64, is_training=True):
+    def __init__(self, tokenizer_name="xlnet-large-cased", max_seq_len=384, doc_stride=128, max_query_len=64, is_training=True):
         """
             Reader for squad 2 dataset
 
@@ -26,7 +27,7 @@ class SQuAD2Reader:
         self.max_seq_len = max_seq_len
         self.doc_stride = doc_stride
         self.max_query_len = max_query_len
-        self.tokenizer_name = tokeniizer_name
+        self.tokenizer_name = tokenizer_name
 
     def squad_data(self, filename):
         """
@@ -40,6 +41,11 @@ class SQuAD2Reader:
             features = convert_examples_to_features(examples, self.tokenizer, self.max_seq_len, self.doc_stride, self.max_query_len, self.is_training)
             torch.save((examples, features), cache_file)
 
+        # Convert to Tensors and build dataset
+        datasets = self.features_to_datasets(features)
+        return examples, features, datasets
+
+    def features_to_datasets(self, features):
         # Convert to Tensors and build dataset
         all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
         all_input_mask = torch.tensor([f.input_mask for f in features], dtype=torch.long)
@@ -56,11 +62,11 @@ class SQuAD2Reader:
             all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
             dataset = TensorDataset(all_input_ids, all_input_mask, all_segment_ids,
                                     all_example_index, all_cls_index, all_p_mask)
-        return examples, features, dataset
+        return dataset
 
     def convert_to_example(self,
-                           qas_id,
                            question_text,
+                           qas_id=None,
                            paragraph_text=None,
                            char_to_word_offset=None,
                            doc_tokens=None,
@@ -164,4 +170,16 @@ class SQuAD2Reader:
                     if example:
                         examples.append(example)
         return examples
+
+    def __call__(self, question, paragraph):
+        """ get feature for eval"""
+        example = self.convert_to_example(
+            question_text = question,
+            paragraph_text = paragraph
+        )
+        feature = convert_examples_to_features([example], self.tokenizer, self.max_seq_len, self.doc_stride, self.max_query_len, False)
+        dataset = self.features_to_datasets(feature)
+        sampler = SequentialSampler(dataset)
+        dataloader = DataLoader(dataset, sampler=sampler, batch_size=1)
+        return example, feature[0], next(iter(dataloader))
 

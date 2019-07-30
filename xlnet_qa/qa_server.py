@@ -1,31 +1,52 @@
 #!/usr/bin/env python
-import os, sqlite3, nltk, string
+import os, sqlite3, nltk, string, torch
 from tqdm import tqdm
 from nlptools.text import TFIDF, Vocab
 from nlptools.utils import lloads, ldumps
-from pytorch_transformers import XLNetTokenizer
-
+from pytorch_transformers import XLNetForQuestionAnswering
+from .squad2_reader import SQuAD2Reader
 
 class QAServer:
     """
         QA restful server
     """
-    def __init__(self, filepath, recreate=False, url_rule="/api/query", port=5002):
+    def __init__(self,
+                 file_path,
+                 model_path,
+                 model_name = "xlnet-large-cased",
+                 max_seq_len = 384,
+                 doc_stride = 128,
+                 max_query_len = 64,
+                 device = "cuda:0",
+                 recreate=False,
+                 url_rule="/api/query",
+                 port=5002):
         """
             Input:
-                - filepath: txt file path, support .gzip, .bzip2, and .txt file
+                - file_path: txt file path, support .gzip, .bzip2, and .txt file
+                - model_path: path of model, must be a directory and contains file "pytorch_model.bin" and "config.json"
                 - tokenizer: tokenizer from pytorch_transformers
                 - recreate: bool, True will force recreate db, default is False
         """
-        self.tokenizer = XLNetTokenizer.from_pretrained("xlnet-large-cased", do_lower_case=True) #get sub words and related ids
+        self.reader = SQuAD2Reader(tokenizer_name = model_name,
+                                  max_seq_len = max_seq_len,
+                                  doc_stride = doc_stride,
+                                  max_query_len = max_query_len,
+                                  is_training = False)
+        self.tokenizer = self.reader.tokenizer
         self.vocab_size = self.tokenizer.vocab_size
+        if not torch.cuda.is_available():
+            self.device = "cpu"
+        else:
+            self.device = device
 
         self.translator = str.maketrans('', '', string.punctuation) # remove punctuation
        
         self.tfidf = None
-        self.cached_contents = filepath + ".db"
-        self._build_db(filepath, recreate)
-        self._build_index(filepath, recreate)
+        self.cached_contents = file_path + ".db"
+        self._build_db(file_path, recreate)
+        self._build_index(file_path, recreate)
+        self._load_model(model_path, self.device)
 
     def _get_cursor(self, dbfile):
         db = sqlite3.connect(dbfile)
@@ -48,12 +69,14 @@ class QAServer:
         else:
             recreate = True
 
-        if not recreate:
-            return
-
         db, cursor = self._get_cursor(cached_contents)
+        if not recreate:
+            totN = list(cursor.execute("select max(id) from contents"))[0][0]
+            if totN is not None:
+                db.close()
+                return
 
-        cursor.execute('''create table contents (
+        cursor.execute('''create table if not exists contents (
             id integer primary key,
             pid integer,
             sid integer,
@@ -73,7 +96,7 @@ class QAServer:
         with open_func(filepath, mode="rt", encoding="utf-8") as f:
             totN, totP, totS= 0, 0, 0
             batch_data = []
-            for l in tqdm(f):
+            for l in tqdm(f, desc="Converting to sqlite", unit=" lines"):
                 l = l.strip()
                 if len(l) < 1 :
                     if totS > 0 : totP += 1
@@ -94,10 +117,39 @@ class QAServer:
                         cursor.executemany("""insert into contents values (?,?,?,?,?)""", batch_data)
                         db.commit()
                         batch_data = []
-            if batch_data > 0:
+            if len(batch_data) > 0:
                 cursor.executemany("""insert into contents values (?,?,?,?,?)""", batch_data)
             db.commit()
         db.close()
+
+    def _build_index(self, filepath, recreate=False):
+        """
+            build index
+
+            Input:
+                - filepath: txt file path, support .gzip, .bzip2, and .txt file
+                - recreate: bool, True will force recreate db, default is False
+        """
+        cached_index = filepath + '.index'
+        cached_contents = filepath + ".db"
+
+        self.tfidf = TFIDF(vocab_size=self.vocab_size, cached_index=cached_index)
+
+        db, cursor = self._get_cursor(cached_contents)
+        totN = list(cursor.execute("select max(id) from contents"))[0][0] + 1
+        db.close()
+
+        def data_iter():
+            db, cursor = self._get_cursor(cached_contents)
+            for data in cursor.execute('select * from contents order by id'):
+                yield lloads(data[4])
+            db.close()
+        self.tfidf.load_index(corpus_ids=data_iter(), corpus_len=totN, retrain=recreate)
+
+    def _load_model(self, model_path, device):
+        self.model = XLNetForQuestionAnswering.from_pretrained(model_path)
+        self.model.to(device)
+        self.model.eval()
 
     def search(self, text, topN=5, before=0, after=0):
         """
@@ -146,30 +198,16 @@ class QAServer:
             return None
         return all_sentences
 
-    def _build_index(self, filepath, recreate=False):
-        """
-            build index
+    def answer(self, question):
+        related_texts = self.search(question)
+        example, feature, dataset = self.reader(question, "\n".join(related_texts))
+        dataset = tuple(t.to(self.device) for t in dataset)
+        outputs = self.model(input_ids = dataset[0],
+                        attention_mask = dataset[1],
+                        token_type_ids = dataset[2],
+                        cls_index = dataset[4],
+                        p_mask = dataset[5]
+                       )
+        print(outputs)
+        
 
-            Input:
-                - filepath: txt file path, support .gzip, .bzip2, and .txt file
-                - recreate: bool, True will force recreate db, default is False
-        """
-        cached_index = filepath + '.index'
-        cached_contents = filepath + ".db"
-
-        self.tfidf = TFIDF(vocab_size=self.vocab_size, cached_index=cached_index)
-
-        db, cursor = self._get_cursor(cached_contents)
-        totN = list(cursor.execute("select max(id) from contents"))[0][0] + 1
-        db.close()
-
-        def data_iter():
-            db, cursor = self._get_cursor(cached_contents)
-            for data in cursor.execute('select * from contents order by id'):
-                yield lloads(data[4])
-            db.close()
-        self.tfidf.load_index(corpus_ids=data_iter(), corpus_len=totN, retrain=recreate)
-
-    def answer(self, text):
-        related_texts = self.search(text)
-        pass
