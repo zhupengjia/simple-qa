@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import argparse, sys
+import argparse
 
 parser = argparse.ArgumentParser(description='Read comprehension using XLNet pretrained model')
 parser.add_argument('--device', dest="device", default="cuda:0", help="choose to use cpu or cuda:x, default is cuda:0")
