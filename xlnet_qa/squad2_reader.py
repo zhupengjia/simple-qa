@@ -1,14 +1,17 @@
 #!/usr/bin/env python
-import json, os, torch
+import json, os, torch, collections
 from pytorch_transformers.tokenization_bert import whitespace_tokenize
 from pytorch_transformers import XLNetTokenizer
 from torch.utils.data import TensorDataset
 from torch.utils.data import SequentialSampler, DataLoader
-from .utils_squad import SquadExample, convert_examples_to_features
+from .utils_squad import SquadExample, convert_examples_to_features, get_final_text, _compute_softmax, RawResultExtended
 
 """
     modified from pytorch_transformers project
 """
+
+def to_list(tensor):
+    return tensor.detach().cpu().tolist()
 
 class SQuAD2Reader:
     def __init__(self, tokenizer_name="xlnet-large-cased", max_seq_len=384, doc_stride=128, max_query_len=64, is_training=True):
@@ -170,6 +173,149 @@ class SQuAD2Reader:
                     if example:
                         examples.append(example)
         return examples
+
+    def convert_output_to_answer(self, example, feature, model_output, start_n_top, end_n_top, n_best_size=20, max_answer_length=30):
+        """Convert model's output to answer"""
+        """ XLNet write prediction logic (more complex than Bert's).
+            Write final predictions to the json file and log-odds of null if needed.
+
+            Requires utils_squad_evaluate.py
+        """
+        unique_id = int(feature.unique_id)
+        result = RawResultExtended(unique_id= unique_id,
+                            start_top_log_probs  = to_list(model_output[0][0]),
+                            start_top_index      = to_list(model_output[1][0]),
+                            end_top_log_probs    = to_list(model_output[2][0]),
+                            end_top_index        = to_list(model_output[3][0]),
+                            cls_logits           = to_list(model_output[4][0])
+                                  )
+
+        _PrelimPrediction = collections.namedtuple(  # pylint: disable=invalid-name
+            "PrelimPrediction",
+            ["start_index", "end_index",
+            "start_log_prob", "end_log_prob"])
+
+        _NbestPrediction = collections.namedtuple(  # pylint: disable=invalid-name
+            "NbestPrediction", ["text", "start_log_prob", "end_log_prob"])
+
+        prelim_predictions = []
+        # keep track of the minimum score of null start+end of position 0
+        score_null = 1000000  # large and positive
+
+        cur_null_score = result.cls_logits
+
+        # if we could have irrelevant answers, get the min score of irrelevant
+        score_null = min(score_null, cur_null_score)
+
+        for i in range(start_n_top):
+            for j in range(end_n_top):
+                start_log_prob = result.start_top_log_probs[i]
+                start_index = result.start_top_index[i]
+
+                j_index = i * end_n_top + j
+
+                end_log_prob = result.end_top_log_probs[j_index]
+                end_index = result.end_top_index[j_index]
+
+                # We could hypothetically create invalid predictions, e.g., predict
+                # that the start of the span is in the question. We throw out all
+                # invalid predictions.
+                if start_index >= feature.paragraph_len - 1:
+                    continue
+                if end_index >= feature.paragraph_len - 1:
+                    continue
+
+                if not feature.token_is_max_context.get(start_index, False):
+                    continue
+                if end_index < start_index:
+                    continue
+                length = end_index - start_index + 1
+                if length > max_answer_length:
+                    continue
+
+                prelim_predictions.append(
+                    _PrelimPrediction(
+                        start_index=start_index,
+                        end_index=end_index,
+                        start_log_prob=start_log_prob,
+                        end_log_prob=end_log_prob))
+
+        prelim_predictions = sorted(
+            prelim_predictions,
+            key=lambda x: (x.start_log_prob + x.end_log_prob),
+            reverse=True)
+
+        seen_predictions = {}
+        nbest = []
+        for pred in prelim_predictions:
+            if len(nbest) >= n_best_size:
+                break
+
+            # XLNet un-tokenizer
+            # Let's keep it simple for now and see if we need all this later.
+            # 
+            # tok_start_to_orig_index = feature.tok_start_to_orig_index
+            # tok_end_to_orig_index = feature.tok_end_to_orig_index
+            # start_orig_pos = tok_start_to_orig_index[pred.start_index]
+            # end_orig_pos = tok_end_to_orig_index[pred.end_index]
+            # paragraph_text = example.paragraph_text
+            # final_text = paragraph_text[start_orig_pos: end_orig_pos + 1].strip()
+
+            # Previously used Bert untokenizer
+            tok_tokens = feature.tokens[pred.start_index:(pred.end_index + 1)]
+            orig_doc_start = feature.token_to_orig_map[pred.start_index]
+            orig_doc_end = feature.token_to_orig_map[pred.end_index]
+            orig_tokens = example.doc_tokens[orig_doc_start:(orig_doc_end + 1)]
+            tok_text = self.tokenizer.convert_tokens_to_string(tok_tokens)
+
+            # Clean whitespace
+            tok_text = tok_text.strip()
+            tok_text = " ".join(tok_text.split())
+            orig_text = " ".join(orig_tokens)
+
+            final_text = get_final_text(tok_text, orig_text, self.tokenizer.do_lower_case, False)
+
+            if final_text in seen_predictions:
+                continue
+
+            seen_predictions[final_text] = True
+
+            nbest.append(
+                _NbestPrediction(
+                    text=final_text,
+                    start_log_prob=pred.start_log_prob,
+                    end_log_prob=pred.end_log_prob))
+
+        # In very rare edge cases we could have no valid predictions. So we
+        # just create a nonce prediction in this case to avoid failure.
+        if not nbest:
+            nbest.append(
+                _NbestPrediction(text="", start_log_prob=-1e6,
+                end_log_prob=-1e6))
+
+        total_scores = []
+        best_non_null_entry = None
+        for entry in nbest:
+            total_scores.append(entry.start_log_prob + entry.end_log_prob)
+            if not best_non_null_entry:
+                best_non_null_entry = entry
+
+        probs = _compute_softmax(total_scores)
+
+        nbest_json = []
+        for (i, entry) in enumerate(nbest):
+            output = collections.OrderedDict()
+            output["text"] = entry.text
+            output["probability"] = probs[i]
+            output["start_log_prob"] = entry.start_log_prob
+            output["end_log_prob"] = entry.end_log_prob
+            nbest_json.append(output)
+
+        assert len(nbest_json) >= 1
+        assert best_non_null_entry is not None
+
+        score_diff = score_null
+        return  best_non_null_entry.text, score_diff
 
     def __call__(self, question, paragraph):
         """ get feature for eval"""

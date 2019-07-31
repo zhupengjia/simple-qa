@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import os, sqlite3, nltk, string, torch
 from tqdm import tqdm
-from nlptools.text import TFIDF, Vocab
+from nlptools.text import TFIDF
 from nlptools.utils import lloads, ldumps
 from pytorch_transformers import XLNetForQuestionAnswering
 from .squad2_reader import SQuAD2Reader
@@ -198,7 +198,7 @@ class QAServer:
             return None
         return all_sentences
 
-    def answer(self, question):
+    def __call__(self, question):
         related_texts = self.search(question)
         example, feature, dataset = self.reader(question, "\n".join(related_texts))
         dataset = tuple(t.to(self.device) for t in dataset)
@@ -208,6 +208,6 @@ class QAServer:
                         cls_index = dataset[4],
                         p_mask = dataset[5]
                        )
-        print(outputs)
-        
+        answer, score = self.reader.convert_output_to_answer(example, feature, outputs, self.model.config.start_n_top, self.model.config.end_n_top)
+        return answer, score
 
