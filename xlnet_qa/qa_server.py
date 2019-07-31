@@ -18,7 +18,8 @@ class QAServer:
                  doc_stride = 128,
                  max_query_len = 64,
                  device = "cuda:0",
-                 recreate=False):
+                 recreate=False,
+                 **args):
         """
             Input:
                 - file_path: txt file path, support .gzip, .bzip2, and .txt file
