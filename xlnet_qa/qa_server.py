@@ -1,10 +1,7 @@
 #!/usr/bin/env python
-import os, nltk, string, torch, shutil
+import os, nltk, string, torch, shutil, xapian
 from tqdm import tqdm
 from pytorch_transformers import XLNetForQuestionAnswering
-from whoosh.analysis import StemmingAnalyzer
-from whoosh.fields import TEXT, Schema
-from whoosh import qparser, index
 from .squad2_reader import SQuAD2Reader
 
 class QAServer:
@@ -64,14 +61,14 @@ class QAServer:
         else:
             recreate = True
 
-        stem_ana = StemmingAnalyzer()
-        self.schema = Schema(content=TEXT(stored=True, analyzer=stem_ana))
+        stemmer = xapian.Stem("english")
 
         if not recreate:
-            self.ix = index.open_dir(cached_index, indexname="qa_content")
+            database = xapian.Database(cached_index)
         else:
-            os.makedirs(cached_index)
-            self.ix = index.create_in(cached_index, self.schema, indexname="qa_content")
+            database = xapian.WritableDatabase(cached_index, xapian.DB_CREATE_OR_OPEN)
+            indexer = xapian.TermGenerator()
+            indexer.set_stemmer(stemmer)
 
             ext = os.path.splitext(filepath)[-1]
             if ext == ".bz2":
@@ -85,7 +82,6 @@ class QAServer:
 
             with open_func(filepath, mode="rt", encoding="utf-8") as f:
                 totN, totP, totS= 0, 0, 0
-                writer = self.ix.writer()
                 for l in tqdm(f, desc="Building index", unit=" lines"):
                     l = l.strip()
                     if len(l) < 1 :
@@ -97,14 +93,21 @@ class QAServer:
                         clean_sent = sent.translate(self.translator).lower().strip()
                         if len(clean_sent) < 1:
                             continue
-                        writer.add_document(content=clean_sent)
+                        
+                        doc = xapian.Document()
+                        doc.set_data(l)
+                        indexer.set_document(doc)
+                        indexer.index_text(l)
+                        database.add_document(doc)
+
                         totN += 1
                         totS += 1
-                writer.commit()
         
-        og = qparser.OrGroup.factory(0.9)
-        self.parser = qparser.QueryParser("content", schema=ix.schema, group=og)
-        self.parser.add_plugin(qparser.FuzzyTermPlugin())
+        self.parser = xapian.QueryParser()
+        self.parser.set_stemmer(stemmer)
+        self.parser.set_database(database)
+        self.parser.set_stemming_strategy(xapian.QueryParser.STEM_SOME)
+        self.enquire = xapian.Enquire(database)
 
     def _load_model(self, model_path, device):
         self.model = XLNetForQuestionAnswering.from_pretrained(model_path)
@@ -122,10 +125,11 @@ class QAServer:
         text = text.translate(self.translator).lower().strip()
         if len(text) < 1:
             return None
-        query = parser.parse(text)
-        
-        results = searcher.search(query, limit=topN, terms=True)
-        return [r['content'] for r in results]
+        query = self.parser.parse_query(text)
+        self.enquire.set_query(query)
+
+        matches = self.enquire.get_mset(0, topN)
+        return [m.document.get_data() for m in matches]
 
     def __call__(self, question):
         related_texts = self.search(question)
