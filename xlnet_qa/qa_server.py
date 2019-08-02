@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import os, nltk, string, torch, shutil, xapian
+import os, nltk, torch, shutil, xapian
 from tqdm import tqdm
 from pytorch_transformers import XLNetForQuestionAnswering
 from .squad2_reader import SQuAD2Reader
@@ -35,15 +35,8 @@ class QAServer:
         else:
             self.device = device
 
-        self.translator = str.maketrans('', '', string.punctuation) # remove punctuation
-
         self._build_index(file_path, recreate)
         self._load_model(model_path, self.device)
-
-    def _get_cursor(self, dbfile):
-        db = sqlite3.connect(dbfile)
-        cursor = db.cursor()
-        return db, cursor
 
     def _build_index(self, filepath, recreate=False):
         """
@@ -89,15 +82,11 @@ class QAServer:
                         totS = 0
                         continue
                     for sent in nltk.sent_tokenize(l):
-                        sent = sent.strip()
-                        clean_sent = sent.translate(self.translator).lower().strip()
-                        if len(clean_sent) < 1:
-                            continue
-                        
+                        sent.strip()
                         doc = xapian.Document()
-                        doc.set_data(l)
+                        doc.set_data(sent)
                         indexer.set_document(doc)
-                        indexer.index_text(l)
+                        indexer.index_text(sent)
                         database.add_document(doc)
 
                         totN += 1
@@ -122,7 +111,7 @@ class QAServer:
                 - text: string
                 - topN: int, return topN results, default is 5
         """
-        text = text.translate(self.translator).lower().strip()
+        text = text.strip()
         if len(text) < 1:
             return None
         query = self.parser.parse_query(text)
