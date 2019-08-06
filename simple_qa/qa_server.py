@@ -118,7 +118,7 @@ class QAServer:
         self.enquire.set_query(query)
 
         matches = self.enquire.get_mset(0, topN)
-        return [m.document.get_data() for m in matches]
+        return [str(m.document.get_data(), 'utf-8') for m in matches]
 
     def __call__(self, question):
         related_texts = self.search(question)

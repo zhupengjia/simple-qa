@@ -1,3 +1,3 @@
-# xlnet_qa
+# Simple QA
 
-Question answering using pretrained XLNET model
+Question answering using pretrained models
