@@ -130,6 +130,8 @@ class QAServer:
                         cls_index = dataset[4],
                         p_mask = dataset[5]
                        )
+        
         answer, score = self.reader.convert_output_to_answer(example, feature, outputs, self.model.config.start_n_top, self.model.config.end_n_top)
-        return answer, score
+        text = answer.text + "\n\n" + "Related texts:\n* " + "\n* ".join(related_texts)
+        return text, abs(score)
 

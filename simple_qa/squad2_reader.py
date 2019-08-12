@@ -315,7 +315,7 @@ class SQuAD2Reader:
         assert best_non_null_entry is not None
 
         score_diff = score_null
-        return  best_non_null_entry.text, score_diff
+        return  best_non_null_entry, score_diff
 
     def __call__(self, question, paragraph):
         """ get feature for eval"""
