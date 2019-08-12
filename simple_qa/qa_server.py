@@ -150,5 +150,7 @@ class QAServer:
             text = answer["text"] + "\n\n" + "Related texts:\n* " + "\n* ".join(related_texts) + "\n"
         else:
             text = answer["text"]
+
+        print("probability:", answer["probability"], "score:", score)
         return text, score
 
