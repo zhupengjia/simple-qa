@@ -16,7 +16,9 @@ class QAServer:
                  doc_stride = 128,
                  max_query_len = 64,
                  device = "cuda:0",
-                 recreate=False,
+                 recreate = False,
+                 score_limit = 0.2,
+                 return_relate = False,
                  **args):
         """
             Input:
@@ -24,6 +26,8 @@ class QAServer:
                 - model_path: path of model, must be a directory and contains file "pytorch_model.bin" and "config.json"
                 - tokenizer: tokenizer from pytorch_transformers
                 - recreate: bool, True will force recreate db, default is False
+                - score_limit: float, Limitation of score, if below this number will return None, default is 0.3
+                - return_relate: bool, set to return related text, default is False
         """
         self.reader = SQuAD2Reader(tokenizer_name = model_name,
                                   max_seq_len = max_seq_len,
@@ -37,6 +41,8 @@ class QAServer:
 
         self._build_index(file_path, recreate)
         self._load_model(model_path, self.device)
+        self.score_limit = score_limit
+        self.return_relate = return_relate
 
     def _build_index(self, filepath, recreate=False):
         """
@@ -120,7 +126,7 @@ class QAServer:
         matches = self.enquire.get_mset(0, topN)
         return [str(m.document.get_data(), 'utf-8') for m in matches]
 
-    def __call__(self, question):
+    def __call__(self, question, session_id=None):
         related_texts = self.search(question)
         example, feature, dataset = self.reader(question, "\n".join(related_texts))
         dataset = tuple(t.to(self.device) for t in dataset)
@@ -132,6 +138,17 @@ class QAServer:
                        )
         
         answer, score = self.reader.convert_output_to_answer(example, feature, outputs, self.model.config.start_n_top, self.model.config.end_n_top)
-        text = answer.text + "\n\n" + "Related texts:\n* " + "\n* ".join(related_texts)
-        return text, abs(score)
+        
+        score = abs(score)
+        
+        text = answer["text"].strip()
+
+        if len(text) < 1 or score < self.score_limit or answer["probability"] < self.score_limit:
+            return None, 0
+
+        if self.return_relate:
+            text = answer["text"] + "\n\n" + "Related texts:\n* " + "\n* ".join(related_texts) + "\n"
+        else:
+            text = answer["text"]
+        return text, score
 

@@ -1,6 +1,7 @@
 tqdm
 pytorch_transformers
 numpy
+# python-xapian #please install manually
 scipy
 nltk
 python-lzo
