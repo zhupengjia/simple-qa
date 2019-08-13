@@ -128,7 +128,10 @@ class QAServer:
 
     def __call__(self, question, session_id=None):
         related_texts = self.search(question)
-        example, feature, dataset = self.reader(question, "\n".join(related_texts))
+        _tmp = self.reader(question, "\n".join(related_texts))
+        if _tmp is None:
+            return None, 0
+        example, feature, dataset = _tmp
         dataset = tuple(t.to(self.device) for t in dataset)
         outputs = self.model(input_ids = dataset[0],
                         attention_mask = dataset[1],
@@ -143,7 +146,10 @@ class QAServer:
         
         text = answer["text"].strip()
 
-        if len(text) < 1 or score < self.score_limit or answer["probability"] < self.score_limit:
+        if len(text) < 1:
+            return None, 0
+        if score < self.score_limit:# or answer["probability"] < self.score_limit:
+            print("text:", answer["text"], "probability:", answer["probability"], "score:", score)
             return None, 0
 
         if self.return_relate:

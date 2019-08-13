@@ -26,7 +26,7 @@ class SQuAD2Reader:
                 - is_training: bool, default is True
         """
         self.is_training = is_training
-        self.tokenizer = XLNetTokenizer.from_pretrained(tokenizer_name)
+        self.tokenizer = XLNetTokenizer.from_pretrained(tokenizer_name, do_lower_case=True)
         self.max_seq_len = max_seq_len
         self.doc_stride = doc_stride
         self.max_query_len = max_query_len
@@ -325,6 +325,8 @@ class SQuAD2Reader:
             paragraph_text = paragraph
         )
         feature = convert_examples_to_features([example], self.tokenizer, self.max_seq_len, self.doc_stride, self.max_query_len, False)
+        if len(feature) < 1:
+            return None
         dataset = self.features_to_datasets(feature)
         sampler = SequentialSampler(dataset)
         dataloader = DataLoader(dataset, sampler=sampler, batch_size=1)
