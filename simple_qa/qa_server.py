@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 import os, nltk, torch, shutil, xapian
 from tqdm import tqdm
-from pytorch_transformers import XLNetForQuestionAnswering
+from transformers import XLNetForQuestionAnswering
+from nltk.tokenize import wordpunct_tokenize
 from .squad2_reader import SQuAD2Reader
 
 class QAServer:
@@ -39,6 +40,7 @@ class QAServer:
         else:
             self.device = device
 
+        self.max_seq_len = max_seq_len
         self._build_index(file_path, recreate)
         self._load_model(model_path, self.device)
         self.score_limit = score_limit
@@ -80,24 +82,34 @@ class QAServer:
                 open_func = open
 
             with open_func(filepath, mode="rt", encoding="utf-8") as f:
-                totN, totP, totS= 0, 0, 0
                 for l in tqdm(f, desc="Building index", unit=" lines"):
                     l = l.strip()
                     if len(l) < 1 :
-                        if totS > 0 : totP += 1
-                        totS = 0
                         continue
+                    sent_combined = []
+                    sent_len = 0
                     for sent in nltk.sent_tokenize(l):
-                        sent.strip()
+                        sent = sent.strip()
+                        tokens = wordpunct_tokenize(sent)
+                        if sent_len > 0 and sent_len+len(tokens) > self.max_seq_len/2:
+                            combined = "\t" .join(sent_combined)
+                            doc = xapian.Document()
+                            doc.set_data(combined)
+                            indexer.set_document(doc)
+                            indexer.index_text(combined)
+                            database.add_document(doc)
+                            sent_combined = []
+                            sent_len = 0
+                        sent_len += len(tokens)
+                        sent_combined.append(sent)
+                    if sent_len > 0:
+                        combined = "\t" .join(sent_combined)
                         doc = xapian.Document()
-                        doc.set_data(sent)
+                        doc.set_data(combined)
                         indexer.set_document(doc)
-                        indexer.index_text(sent)
+                        indexer.index_text(combined)
                         database.add_document(doc)
 
-                        totN += 1
-                        totS += 1
-        
         self.parser = xapian.QueryParser()
         self.parser.set_stemmer(stemmer)
         self.parser.set_database(database)

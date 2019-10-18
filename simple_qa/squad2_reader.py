@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import json, os, torch, collections
-from pytorch_transformers.tokenization_bert import whitespace_tokenize
-from pytorch_transformers import XLNetTokenizer
+from transformers.tokenization_bert import whitespace_tokenize
+from transformers import XLNetTokenizer
 from torch.utils.data import TensorDataset
 from torch.utils.data import SequentialSampler, DataLoader
 from .utils_squad import SquadExample, convert_examples_to_features, get_final_text, _compute_softmax, RawResultExtended
