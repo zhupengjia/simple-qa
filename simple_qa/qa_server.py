@@ -173,11 +173,11 @@ class QAServer:
         if len(text) < 1:
             return None, 0
         
-        print("\n"+"="*30)
-        print("question: ", question)
+        #print("\n"+"="*30)
+        #print("question: ", question)
 
         if score < self.score_limit:# or answer["probability"] < self.score_limit:
-            print("text:", answer["text"], "probability:", answer["probability"], "score:", score, "\nrelated:\n*", "\n* ".join(related_texts))
+            #print("text:", answer["text"], "probability:", answer["probability"], "score:", score, "\nrelated:\n*", "\n* ".join(related_texts))
             return None, 0
 
         if self.return_relate:
@@ -185,6 +185,6 @@ class QAServer:
         else:
             text = answer["text"]
 
-        print("probability:", answer["probability"], "score:", score, "\nrelated:\n* ", "\n* ".join(related_texts))
+        #print("probability:", answer["probability"], "score:", score, "\nrelated:\n* ", "\n* ".join(related_texts))
         return text, score
 
