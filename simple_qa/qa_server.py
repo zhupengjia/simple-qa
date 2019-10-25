@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import os, nltk, torch, shutil, xapian
+import os, nltk, torch, shutil, xapian, subprocess, glob
 from tqdm import tqdm
 from transformers import XLNetForQuestionAnswering
 from nltk.tokenize import wordpunct_tokenize
@@ -51,7 +51,7 @@ class QAServer:
             save txt to LevelDB
 
             Input:
-                - filepath: txt file path, support .gzip, .bzip2, and .txt file
+                - filepath: txt file path, support .pdf, .gzip, .bzip2, and .txt file, or dictionary which contains those files
                 - recreate: bool, True will force recreate db, default is False
         """
         cached_index = filepath + ".index"
@@ -71,44 +71,56 @@ class QAServer:
             indexer = xapian.TermGenerator()
             indexer.set_stemmer(stemmer)
 
-            ext = os.path.splitext(filepath)[-1]
-            if ext == ".bz2":
-                import bz2
-                open_func = bz2.open
-            elif ext == ".gz":
-                import gzip
-                open_func = gzip.open
+            if os.path.isdir(filepath):
+                filepaths = glob.glob(os.path.join(filepath, "*.*"))
             else:
-                open_func = open
+                filepaths = [filepath]
 
-            with open_func(filepath, mode="rt", encoding="utf-8") as f:
-                for l in tqdm(f, desc="Building index", unit=" lines"):
-                    l = l.strip()
-                    if len(l) < 1 :
-                        continue
-                    sent_combined = []
-                    sent_len = 0
-                    for sent in nltk.sent_tokenize(l):
-                        sent = sent.strip()
-                        tokens = wordpunct_tokenize(sent)
-                        if sent_len > 0 and sent_len+len(tokens) > self.max_seq_len/2:
+            for filepath in filepaths:
+                ext = os.path.splitext(filepath)[-1]
+                open_func = open
+                if ext == ".pdf":
+                    filepath2 = filepath + ".txt"
+                    if not os.path.exists(filepath2):
+                        subprocess.Popen(('pdftotext', filepath, filepath2)).wait()
+                    filepath = filepath2
+                elif ext == ".bz2":   
+                    import bz2
+                    open_func = bz2.open
+                elif ext == ".gz":
+                    import gzip
+                    open_func = gzip.open
+                else:
+                    continue
+
+                with open_func(filepath, mode="rt", encoding="utf-8") as f:
+                    for l in tqdm(f, desc="Building index for " + filepath, unit=" lines"):
+                        l = l.strip()
+                        if len(l) < 1 :
+                            continue
+                        sent_combined = []
+                        sent_len = 0
+                        for sent in nltk.sent_tokenize(l):
+                            sent = sent.strip()
+                            tokens = wordpunct_tokenize(sent)
+                            if sent_len > 0 and sent_len+len(tokens) > self.max_seq_len/2:
+                                combined = "\t" .join(sent_combined)
+                                doc = xapian.Document()
+                                doc.set_data(combined)
+                                indexer.set_document(doc)
+                                indexer.index_text(combined)
+                                database.add_document(doc)
+                                sent_combined = []
+                                sent_len = 0
+                            sent_len += len(tokens)
+                            sent_combined.append(sent)
+                        if sent_len > 0:
                             combined = "\t" .join(sent_combined)
                             doc = xapian.Document()
                             doc.set_data(combined)
                             indexer.set_document(doc)
                             indexer.index_text(combined)
                             database.add_document(doc)
-                            sent_combined = []
-                            sent_len = 0
-                        sent_len += len(tokens)
-                        sent_combined.append(sent)
-                    if sent_len > 0:
-                        combined = "\t" .join(sent_combined)
-                        doc = xapian.Document()
-                        doc.set_data(combined)
-                        indexer.set_document(doc)
-                        indexer.index_text(combined)
-                        database.add_document(doc)
 
         self.parser = xapian.QueryParser()
         self.parser.set_stemmer(stemmer)

@@ -1,8 +1,5 @@
 tqdm
-pytorch_transformers
+transformers
 numpy
 # python-xapian #please install manually
-scipy
 nltk
-python-lzo
-git+git@github.com:zhupengjia/nlptools.git

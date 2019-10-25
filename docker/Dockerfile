@@ -7,7 +7,7 @@ ENV WORKDIR /opt/chatbot
 ENV BUILD_VERSION b1.0
 
 RUN apt-get update &&\
-    apt-get install -y --no-install-recommends python3-numpy python3-joblib python3-tqdm python3-nltk python3-flask python3-pip python3-xapian python3-setuptools python3-regex python3-requests python3-boto3 cython3 &&\
+    apt-get install -y --no-install-recommends poppler-utils python3-numpy python3-joblib python3-tqdm python3-nltk python3-flask python3-pip python3-xapian python3-setuptools python3-regex python3-requests python3-boto3 cython3 &&\
     rm -rf /var/lib/apt/lists/*
 
 # python packages
