@@ -3,7 +3,7 @@ version: '3'
 services:
 
   simple_qa:
-      image: simple_qa:cpu
+      image: zhupengjia/simple-qa:cpu
       restart: always
       ports:
           - 5000:5000
