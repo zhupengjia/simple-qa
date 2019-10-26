@@ -152,6 +152,9 @@ class QAServer:
 
     def __call__(self, question, session_id=None):
         related_texts = self.search(question)
+        if related_texts is None or len(related_texts) < 1:
+            return None, 0
+
         _tmp = self.reader(question, "\n".join(related_texts))
         if _tmp is None:
             return None, 0
