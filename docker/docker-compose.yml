@@ -3,7 +3,7 @@ version: '3'
 services:
 
   simple_qa:
-      image: simple_qa:latest
+      image: simple_qa:cpu
       restart: always
       ports:
           - 5000:5000
@@ -11,6 +11,7 @@ services:
           - ../data:/opt/chatbot/data
       working_dir: /opt/chatbot
       environment:
-          BOT_INPUT:
-          BOT_MODEL:
-          BOT_SCORELIMIT: 0.4
+          BOT_INPUT: data/sample.txt
+          BOT_MODEL: data/checkpoint-7900
+          BOT_BACKEND: restful
+          BOT_SCORELIMIT: 0.2
