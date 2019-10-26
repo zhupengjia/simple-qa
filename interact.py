@@ -8,7 +8,6 @@ parser.add_argument('-p', '--port', dest='port', default=5002, help="listen port
 parser.add_argument('--backend', dest='backend', default='shell', help="choose for backend from: shell, restful, default is shell")
 parser.add_argument('--scorelimit', dest='scorelimit', default=0.2, help="Limitation of score, if below this number will return None")
 parser.add_argument('--returnrelate', dest="returnrelate", action='store_true', help="set to return related text")
-parser.add_argument('-m', '--model', dest="model", required=True, help="path of model, must be a directory and contains file 'pytorch_model.bin' and 'config.json'")
 parser.add_argument('input', help=".txt, .gz, .bz2 file path")
 args = parser.parse_args()
 
@@ -16,7 +15,6 @@ from simple_qa.backend import Backend
 
 s = Backend(backend_type=args.backend,
             file_path=args.input,
-            model_path=args.model,
             device=args.device,
             recreate=args.recreate,
             port=args.port,

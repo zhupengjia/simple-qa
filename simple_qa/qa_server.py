@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import os, nltk, torch, shutil, xapian, subprocess, glob
 from tqdm import tqdm
-from transformers import XLNetForQuestionAnswering
+from transformers import DistilBertForQuestionAnswering
 from nltk.tokenize import wordpunct_tokenize
 from .squad2_reader import SQuAD2Reader
 
@@ -11,8 +11,7 @@ class QAServer:
     """
     def __init__(self,
                  file_path,
-                 model_path,
-                 model_name = "xlnet-large-cased",
+                 model_name = "distilbert-base-uncased-distilled-squad",
                  max_seq_len = 384,
                  doc_stride = 128,
                  max_query_len = 64,
@@ -24,7 +23,6 @@ class QAServer:
         """
             Input:
                 - file_path: txt file path, support .gzip, .bzip2, and .txt file
-                - model_path: path of model, must be a directory and contains file "pytorch_model.bin" and "config.json"
                 - tokenizer: tokenizer from pytorch_transformers
                 - recreate: bool, True will force recreate db, default is False
                 - score_limit: float, Limitation of score, if below this number will return None, default is 0.3
@@ -42,7 +40,7 @@ class QAServer:
 
         self.max_seq_len = max_seq_len
         self._build_index(file_path, recreate)
-        self._load_model(model_path, self.device)
+        self._load_model(model_name, self.device)
         self.score_limit = score_limit
         self.return_relate = return_relate
 
@@ -128,8 +126,8 @@ class QAServer:
         self.parser.set_stemming_strategy(xapian.QueryParser.STEM_SOME)
         self.enquire = xapian.Enquire(database)
 
-    def _load_model(self, model_path, device):
-        self.model = XLNetForQuestionAnswering.from_pretrained(model_path)
+    def _load_model(self, model_name, device):
+        self.model = DistilBertForQuestionAnswering.from_pretrained(model_name)
         self.model.to(device)
         self.model.eval()
 
@@ -152,19 +150,19 @@ class QAServer:
 
     def __call__(self, question, session_id=None):
         related_texts = self.search(question)
+        if related_texts is None or len(related_texts) < 1:
+            return None, 0
+
         _tmp = self.reader(question, "\n".join(related_texts))
         if _tmp is None:
             return None, 0
         example, feature, dataset = _tmp
         dataset = tuple(t.to(self.device) for t in dataset)
         outputs = self.model(input_ids = dataset[0],
-                        attention_mask = dataset[1],
-                        token_type_ids = dataset[2],
-                        cls_index = dataset[4],
-                        p_mask = dataset[5]
+                        attention_mask = dataset[1]
                        )
         
-        answer, score = self.reader.convert_output_to_answer(example, feature, outputs, self.model.config.start_n_top, self.model.config.end_n_top)
+        answer, score = self.reader.convert_output_to_answer(example, feature, outputs)
         
         score = abs(score)
         

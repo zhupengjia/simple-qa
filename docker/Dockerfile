@@ -24,5 +24,5 @@ ADD simple_qa simple_qa
 
 ADD interact.py interact.py
 
-CMD python3 interact.py ${BOT_INPUT} --model ${BOT_MODEL} --scorelimit ${BOT_SCORELIMIT}  --backend ${BOT_BACKEND} --port 5000
+CMD python3 interact.py ${BOT_INPUT}  --scorelimit ${BOT_SCORELIMIT}  --backend ${BOT_BACKEND} --port 5000
 #CMD tail -f /dev/null
