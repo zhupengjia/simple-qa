@@ -1,0 +1,19 @@
+version: '3'
+
+services:
+
+  simple_qa:
+      image: zhupengjia/simple-qa:gpu
+      restart: always
+      runtime: nvidia
+      ports:
+          - 5000:5000
+      volumes:
+          - ../data:/opt/chatbot/data
+      working_dir: /opt/chatbot
+      environment:
+          NVIDIA_VISIBLE_DEVICES: all
+          BOT_INPUT: data/sample.txt
+          BOT_MODEL: data/checkpoint-7900
+          BOT_BACKEND: restful
+          BOT_SCORELIMIT: 0.2

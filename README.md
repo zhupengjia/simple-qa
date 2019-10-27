@@ -29,23 +29,52 @@ Question answering using pretrained models based on Xapian and XLNet
 
         - Make sure you have data that in the format of .pdf, .txt, .gzip, .bzip2
 
-        - Then try to run manually (use cpu version for test):
+        - Then try to run manually:
             
             Assume your directory contains model and data
 
             ```shell
                 docker run -d -v YOURDIRECTORY:/opt/chatbot/data --name simple_qa zhupengjia/simple-qa:cpu tail -f /dev/null
-                docker exec -it simple_qa bash
-                python3 interact.py  -m data/checkpoint-7900 --returnrelate --backend shell data/sample.txt
-                have fun
+            ```
+                
+            For GPU version, please make sure you have installed nvidia-container-runtime, and has the following item in your /etc/docker/daemon.json file:
+            ```shell
+                "runtimes": {
+                    "nvidia": {
+                        "path": "/usr/bin/nvidia-container-runtime",
+                            "runtimeArgs": []
+                    }
+                }
+            ```
+            Then create container as:
+
+            ```shell
+                docker run -d --runtime nvidia -v YOURDIRECTORY:/opt/chatbot/data --name simple_qa zhupengjia/simple-qa:cpu tail -f /dev/null
             ```
 
-        - If you want to run a restfulapi:
+            Then manually do:
             
             ```shell
+                docker exec -it simple_qa bash
+                python3 interact.py  -m data/checkpoint-7900 --returnrelate --backend shell data/sample.txt
+            ```
+            Have fun
+
+        - If you want to run a restfulapi:
+
+            ```shell
                 cd docker
-                modify docker-compose.yml for image, environment, volumes
+            ```
+
+            modify docker-compose.yml for docker-compose-gpu.yml for image, environment, volumes
+
+            ```shell
                 docker-compose up -d
+            ```
+            or
+
+            ```shell
+                docker-compose -f docker-compose-gpu.yml up -d
             ```
 
     - If you want to train model by yourself:
