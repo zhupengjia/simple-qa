@@ -1,5 +1,5 @@
 tqdm
-transformers==2.1.1
+transformers==4.30.0
 numpy
 # python-xapian #please install manually
 nltk
